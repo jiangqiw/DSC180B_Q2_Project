@@ -39,9 +39,9 @@ def getLossAccuracyOnDataset(network, dataset_loader, fast_device, criterion=Non
 	return loss, accuracy
 
 def trainTeacherOnHparam(teacher_net, hparam, num_epochs, 
-						train_loader, val_loader, 
-						print_every=0, 
-						fast_device=torch.device('cuda:0')):
+							train_loader, val_loader, 
+							print_every=0, 
+							fast_device=torch.device('cuda:0')):
 	"""
 	Trains teacher on given hyperparameters for given number of epochs; Pass val_loader=None when not required to validate for every epoch 
 	Return: List of training loss, accuracy for each update calculated only on the batch; List of validation loss, accuracy for each epoch
@@ -51,31 +51,85 @@ def trainTeacherOnHparam(teacher_net, hparam, num_epochs,
 	teacher_net.dropout_hidden = hparam['dropout_hidden']
 	criterion = nn.CrossEntropyLoss()
 	optimizer = optim.SGD(teacher_net.parameters(), lr=hparam['lr'], momentum=hparam['momentum'], weight_decay=hparam['weight_decay'])
-	lr_scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=hparam['lr_decay'])
+	lr_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs)
+
+	# Early stopping variables
+	best_val_loss = float('inf')
+	best_val_acc = 0.0
+	epochs_without_improvement = 0
+	patience = 5
+	best_model_state = None
+
 	for epoch in range(num_epochs):
 		lr_scheduler.step()
-		if epoch == 0:
-			if val_loader is not None:
-				val_loss, val_acc = getLossAccuracyOnDataset(teacher_net, val_loader, fast_device, criterion)
-				val_loss_list.append(val_loss)
-				val_acc_list.append(val_acc)
-				print('epoch: %d validation loss: %.3f validation accuracy: %.3f' %(epoch, val_loss, val_acc))
+		teacher_net.train()
+		train_loss, train_acc = 0.0, 0.0
+
 		for i, data in enumerate(train_loader, 0):
 			X, y = data
 			X, y = X.to(fast_device), y.to(fast_device)
-			loss, acc = trainStep(teacher_net, criterion, optimizer, X, y)
-			train_loss_list.append(loss)
-			train_acc_list.append(acc)
-		
+			optimizer.zero_grad()
+			outputs = teacher_net(X)
+			loss = criterion(outputs, y)
+			loss.backward()
+			optimizer.step()
+
+			train_loss += loss.item() * X.size(0)
+			train_acc += (outputs.argmax(1) == y).sum().item()
+
 			if print_every > 0 and i % print_every == print_every - 1:
 				print('[%d, %5d/%5d] train loss: %.3f train accuracy: %.3f' %
-					  (epoch + 1, i + 1, len(train_loader), loss, acc))
-		
+					  (epoch + 1, i + 1, len(train_loader), loss.item(), (outputs.argmax(1) == y).float().mean().item()))
+
+		train_loss /= len(train_loader.dataset)
+		train_acc /= len(train_loader.dataset)
+		train_loss_list.append(train_loss)
+		train_acc_list.append(train_acc)
+
+		# Validation
 		if val_loader is not None:
+			teacher_net.eval()
 			val_loss, val_acc = getLossAccuracyOnDataset(teacher_net, val_loader, fast_device, criterion)
 			val_loss_list.append(val_loss)
 			val_acc_list.append(val_acc)
-			print('epoch: %d validation loss: %.3f validation accuracy: %.3f' %(epoch + 1, val_loss, val_acc))
+			print('Epoch: %d, Train Loss: %.4f, Train Acc: %.4f, Val Loss: %.4f, Val Acc: %.4f' %
+				  (epoch + 1, train_loss, train_acc, val_loss, val_acc))
+
+			# Check for early stopping
+			if val_loss < best_val_loss:
+				best_val_loss = val_loss
+				best_val_acc = val_acc
+				epochs_without_improvement = 0
+				best_model_state = teacher_net.state_dict()
+			else:
+				epochs_without_improvement += 1
+
+			if epochs_without_improvement >= patience:
+				print(f"Early stopping triggered after {epoch + 1} epochs.")
+				break
+
+	# Fine-tuning
+	if best_model_state is not None:
+		print("Fine-tuning the model.")
+		teacher_net.load_state_dict(best_model_state)
+		optimizer = optim.SGD(teacher_net.parameters(), lr=hparam['lr'] * 0.1, momentum=hparam['momentum'], weight_decay=hparam['weight_decay'])
+		for epoch in range(5):  # Fine-tune for 5 epochs
+			teacher_net.train()
+			for i, data in enumerate(train_loader, 0):
+				X, y = data
+				X, y = X.to(fast_device), y.to(fast_device)
+				optimizer.zero_grad()
+				outputs = teacher_net(X)
+				loss = criterion(outputs, y)
+				loss.backward()
+				optimizer.step()
+
+			# Optional: Validation during fine-tuning
+			if val_loader is not None:
+				val_loss, val_acc = getLossAccuracyOnDataset(teacher_net, val_loader, fast_device, criterion)
+				print('Fine-tuning Epoch: %d, Val Loss: %.4f, Val Acc: %.4f' %
+					  (epoch + 1, val_loss, val_acc))
+
 	return {'train_loss': train_loss_list, 
 			'train_acc': train_acc_list, 
 			'val_loss': val_loss_list, 

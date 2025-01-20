@@ -135,75 +135,92 @@ def trainTeacherOnHparam(teacher_net, hparam, num_epochs,
 			'val_loss': val_loss_list, 
 			'val_acc': val_acc_list}
 
+def enforce_pruning_masks(model, masks, fast_device=torch.device('cuda:0')):
+    """
+    Apply the saved masks to enforce pruning after every optimizer step.
+    """
+    with torch.no_grad():
+        for name, param in model.named_parameters():
+            if name in masks:
+                param.mul_(masks[name].to(fast_device))
+
 def studentTrainStep(teacher_net, student_net, studentLossFn, optimizer, X, y, T, alpha):
-	"""
-	One training step of student network: forward prop + backprop + update parameters
-	Return: (loss, accuracy) of current batch
-	"""
-	optimizer.zero_grad()
-	teacher_pred = None
-	if (alpha > 0):
-		with torch.no_grad():
-			teacher_pred = teacher_net(X)
-	student_pred = student_net(X)
-	loss = studentLossFn(teacher_pred, student_pred, y, T, alpha)
-	loss.backward()
-	optimizer.step()
-	accuracy = float(torch.sum(torch.argmax(student_pred, dim=1) == y).item()) / y.shape[0]
-	return loss, accuracy
+    """
+    One training step of student network: forward prop + backprop + update parameters
+    Return: (loss, accuracy) of current batch
+    """
+    optimizer.zero_grad()
+    teacher_pred = None
+    if alpha > 0:
+        with torch.no_grad():
+            teacher_pred = teacher_net(X)
+    student_pred = student_net(X)
+    loss = studentLossFn(teacher_pred, student_pred, y, T, alpha)
+    loss.backward()
+    optimizer.step()
+
+    # Strictly enforce pruning masks
+    enforce_pruning_masks(student_net.model, student_net.masks)
+
+    accuracy = float(torch.sum(torch.argmax(student_pred, dim=1) == y).item()) / y.shape[0]
+    return loss, accuracy
 
 def trainStudentOnHparam(teacher_net, student_net, hparam, num_epochs, 
-						train_loader, val_loader, 
-						print_every=0, 
-						fast_device=torch.device('cuda:0')):
-	"""
-	Trains teacher on given hyperparameters for given number of epochs; Pass val_loader=None when not required to validate for every epoch
-	Return: List of training loss, accuracy for each update calculated only on the batch; List of validation loss, accuracy for each epoch
-	"""
-	train_loss_list, train_acc_list, val_acc_list = [], [], []
-	T = hparam['T']
-	alpha = hparam['alpha']
-	student_net.dropout_input = hparam['dropout_input']
-	student_net.dropout_hidden = hparam['dropout_hidden']
-	optimizer = optim.SGD(student_net.parameters(), lr=hparam['lr'], momentum=hparam['momentum'], weight_decay=hparam['weight_decay'])
-	lr_scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=hparam['lr_decay'])
+                        train_loader, val_loader, 
+                        print_every=0, 
+                        fast_device=torch.device('cuda:0')):
+    """
+    Trains teacher on given hyperparameters for given number of epochs; Pass val_loader=None when not required to validate for every epoch
+    Return: List of training loss, accuracy for each update calculated only on the batch; List of validation loss, accuracy for each epoch
+    """
+    train_loss_list, train_acc_list, val_acc_list = [], [], []
+    T = hparam['T']
+    alpha = hparam['alpha']
+    student_net.dropout_input = hparam['dropout_input']
+    student_net.dropout_hidden = hparam['dropout_hidden']
 
-	def studentLossFn(teacher_pred, student_pred, y, T, alpha):
-		"""
-		Loss function for student network: Loss = alpha * (distillation loss with soft-target) + (1 - alpha) * (cross-entropy loss with true label)
-		Return: loss
-		"""
-		if (alpha > 0):
-			loss = F.kl_div(F.log_softmax(student_pred / T, dim=1), F.softmax(teacher_pred / T, dim=1), reduction='batchmean') * (T ** 2) * alpha + F.cross_entropy(student_pred, y) * (1 - alpha)
-		else:
-			loss = F.cross_entropy(student_pred, y)
-		return loss
+    optimizer = optim.SGD(
+        student_net.parameters(),
+        lr=hparam['lr'],
+        momentum=hparam['momentum'],
+        weight_decay=hparam['weight_decay']
+    )
+    lr_scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=hparam['lr_decay'])
 
-	for epoch in range(num_epochs):
-		lr_scheduler.step()
-		if epoch == 0:
-			if val_loader is not None:
-				_, val_acc = getLossAccuracyOnDataset(student_net, val_loader, fast_device)
-				val_acc_list.append(val_acc)
-				print('epoch: %d validation accuracy: %.3f' %(epoch, val_acc))
-		for i, data in enumerate(train_loader, 0):
-			X, y = data
-			X, y = X.to(fast_device), y.to(fast_device)
-			loss, acc = studentTrainStep(teacher_net, student_net, studentLossFn, optimizer, X, y, T, alpha)
-			train_loss_list.append(loss)
-			train_acc_list.append(acc)
-		
-			if print_every > 0 and i % print_every == print_every - 1:
-				print('[%d, %5d/%5d] train loss: %.3f train accuracy: %.3f' %
-					  (epoch + 1, i + 1, len(train_loader), loss, acc))
-	
-		if val_loader is not None:
-			_, val_acc = getLossAccuracyOnDataset(student_net, val_loader, fast_device)
-			val_acc_list.append(val_acc)
-			print('epoch: %d validation accuracy: %.3f' %(epoch + 1, val_acc))
-	return {'train_loss': train_loss_list, 
-			'train_acc': train_acc_list, 
-			'val_acc': val_acc_list}
+    def studentLossFn(teacher_pred, student_pred, y, T, alpha):
+        """
+        Loss function for student network: Loss = alpha * (distillation loss with soft-target) + (1 - alpha) * (cross-entropy loss with true label)
+        Return: loss
+        """
+        if (alpha > 0):
+            loss = F.kl_div(F.log_softmax(student_pred / T, dim=1), F.softmax(teacher_pred / T, dim=1), reduction='batchmean') * (T ** 2) * alpha + F.cross_entropy(student_pred, y) * (1 - alpha)
+        else:
+            loss = F.cross_entropy(student_pred, y)
+        return loss
+
+    for epoch in range(num_epochs):
+        lr_scheduler.step()
+        if epoch == 0 and val_loader is not None:
+            _, val_acc = getLossAccuracyOnDataset(student_net, val_loader, fast_device)
+            val_acc_list.append(val_acc)
+            print(f"epoch: {epoch} validation accuracy: {val_acc:.3f}")
+        for i, data in enumerate(train_loader, 0):
+            X, y = data
+            X, y = X.to(fast_device), y.to(fast_device)
+            loss, acc = studentTrainStep(teacher_net, student_net, studentLossFn, optimizer, X, y, T, alpha)
+            train_loss_list.append(loss)
+            train_acc_list.append(acc)
+
+            if print_every > 0 and i % print_every == print_every - 1:
+                print(f"[{epoch + 1}, {i + 1}/{len(train_loader)}] train loss: {loss:.3f} train accuracy: {acc:.3f}")
+
+        if val_loader is not None:
+            _, val_acc = getLossAccuracyOnDataset(student_net, val_loader, fast_device)
+            val_acc_list.append(val_acc)
+            print(f"epoch: {epoch + 1} validation accuracy: {val_acc:.3f}")
+    return {'train_loss': train_loss_list, 
+            'train_acc': train_acc_list, 
+            'val_acc': val_acc_list}
 
 def hparamToString(hparam):
 	"""

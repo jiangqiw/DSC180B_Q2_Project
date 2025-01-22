@@ -2,6 +2,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from networks import apply_gradient_masking, apply_gradient_masking_quantized
+import numpy as np
+import os
+
+class InterruptException(Exception):
+    pass
+
 
 def trainStep(network, criterion, optimizer, X, y):
 	"""
@@ -148,14 +155,17 @@ def studentTrainStep(teacher_net, student_net, studentLossFn, optimizer, X, y, T
 	student_pred = student_net(X)
 	loss = studentLossFn(teacher_pred, student_pred, y, T, alpha)
 	loss.backward()
+	apply_gradient_masking_quantized(student_net)
 	optimizer.step()
+	enforce_sparsity(student_net)
 	accuracy = float(torch.sum(torch.argmax(student_pred, dim=1) == y).item()) / y.shape[0]
 	return loss, accuracy
 
 def trainStudentOnHparam(teacher_net, student_net, hparam, num_epochs, 
 						train_loader, val_loader, 
 						print_every=0, 
-						fast_device=torch.device('cuda:0')):
+						fast_device=torch.device('cuda:0'),
+      					quant=False):
 	"""
 	Trains teacher on given hyperparameters for given number of epochs; Pass val_loader=None when not required to validate for every epoch
 	Return: List of training loss, accuracy for each update calculated only on the batch; List of validation loss, accuracy for each epoch
@@ -201,6 +211,13 @@ def trainStudentOnHparam(teacher_net, student_net, hparam, num_epochs,
 			_, val_acc = getLossAccuracyOnDataset(student_net, val_loader, fast_device)
 			val_acc_list.append(val_acc)
 			print('epoch: %d validation accuracy: %.3f' %(epoch + 1, val_acc))
+		if quant:
+			if epoch > 3:
+				# Freeze quantizer parameters
+				student_net.apply(torch.ao.quantization.disable_observer)
+			if epoch > 2:
+				# Freeze batch norm mean and variance estimates
+				student_net.apply(torch.nn.intrinsic.qat.freeze_bn_stats)
 	return {'train_loss': train_loss_list, 
 			'train_acc': train_acc_list, 
 			'val_acc': val_acc_list}
@@ -236,3 +253,129 @@ def getTrainMetricPerEpoch(train_metric, updates_per_epoch):
 			temp_sum = 0.0
 
 	return train_metric_per_epoch
+
+def fusion_layers_inplace(model, device):
+    '''
+    Let a convolutional layer fuse with its subsequent batch normalization layer  
+    
+    Parameters
+    -----------
+    model: nn.Module
+        The nueral network to extrat all CNN and BN layers
+    '''
+    model_layers = []
+    extract_layers(model, model_layers, supported_layer_type = [nn.Conv2d, nn.BatchNorm2d])
+
+    if len(model_layers) < 2:
+        return 
+    
+    for i in range(len(model_layers)-1):
+        curr_layer, next_layer = model_layers[i], model_layers[i+1]
+
+        if isinstance(curr_layer, nn.Conv2d) and isinstance(next_layer, nn.BatchNorm2d):
+            cnn_layer, bn_layer = curr_layer, next_layer
+            # update the weight and bias of the CNN layer 
+            bn_scaled_weight = bn_layer.weight.data / torch.sqrt(bn_layer.running_var + bn_layer.eps)
+            bn_scaled_bias = bn_layer.bias.data - bn_layer.weight.data * bn_layer.running_mean / torch.sqrt(bn_layer.running_var + bn_layer.eps)
+            cnn_layer.weight.data = cnn_layer.weight.data * bn_scaled_weight[:, None, None, None]
+            # update the parameters in the BN layer 
+            bn_layer.running_var = torch.ones(bn_layer.num_features, device=device)
+            bn_layer.running_mean = torch.zeros(bn_layer.num_features, device=device)
+            bn_layer.weight.data = torch.ones(bn_layer.num_features, device=device)
+            bn_layer.eps = 0.
+
+            if cnn_layer.bias is None:
+                bn_layer.bias.data = bn_scaled_bias
+            else:
+                cnn_layer.bias.data = cnn_layer.bias.data * bn_scaled_weight + bn_scaled_bias 
+                bn_layer.bias.data = torch.zeros(bn_layer.num_features, device=device)
+                
+                
+from torchvision.models.resnet import BasicBlock as tBasicBlock
+from torchvision.models.resnet import Bottleneck as tBottleneck 
+from torchvision.models.resnet import ResNet as tResNet
+from torchvision.models.googlenet import BasicConv2d, Inception, InceptionAux
+from torchvision.models.efficientnet import Conv2dNormActivation, SqueezeExcitation, MBConv 
+from torchvision.models.mobilenetv2 import InvertedResidual
+
+SUPPORTED_LAYER_TYPE = {nn.Linear, nn.Conv2d}
+SUPPORTED_BLOCK_TYPE = {nn.Sequential, 
+                        tBottleneck, tBasicBlock, tResNet,
+                        BasicConv2d, Inception, InceptionAux,
+                        Conv2dNormActivation, SqueezeExcitation, MBConv,
+                        InvertedResidual
+                        }
+def extract_layers(model, layer_list, supported_block_type=SUPPORTED_BLOCK_TYPE, supported_layer_type=SUPPORTED_LAYER_TYPE):
+    '''
+    Recursively obtain layers of given network
+    
+    Parameters
+    -----------
+    model: nn.Module
+        The nueral network to extrat all MLP and CNN layers
+    layer_list: list
+        list containing all supported layers
+    '''
+    for layer in model.children():
+        if type(layer) in supported_block_type:
+            # if sequential layer, apply recursively to layers in sequential layer
+            extract_layers(layer, layer_list, supported_block_type, supported_layer_type)
+        if not list(layer.children()) and type(layer) in supported_layer_type:
+            # if leaf node, add it to list
+            layer_list.append(layer) 
+
+
+def eval_sparsity(model):
+    '''
+    Compute the propotion of 0 in a network.
+    
+    Parameters
+    ----------
+    model: nn.Module
+        The module to evaluate sparsity
+    
+    Returns
+    -------
+    A float capturing the proption of 0 in all the considered params.
+    '''
+    layers = []
+    extract_layers(model, layers)
+    supported_layers = [l for l in layers if type(l) in SUPPORTED_LAYER_TYPE]
+    total_param = 0
+    num_of_zero = 0
+    
+    for l in supported_layers:
+        if l.weight is not None:
+            total_param += l.weight.numel()
+            num_of_zero += l.weight.eq(0).sum().item()
+        if l.bias is not None:
+            total_param += l.bias.numel()
+            num_of_zero += l.bias.eq(0).sum().item()
+    return np.around(num_of_zero / total_param, 4)
+
+def print_size_of_model(model):
+    torch.save(model.state_dict(), "temp.p")
+    print('Size (MB):', os.path.getsize("temp.p")/1e6)
+    os.remove('temp.p')
+    
+def enforce_sparsity(model):
+    """Reapply pruning masks to ensure pruned weights remain zero."""
+    with torch.no_grad():
+        for module in model.modules():
+            if isinstance(module, (nn.Conv2d, nn.Linear)):
+                # Handle floating-point layers
+                if hasattr(module, 'weight_mask'):
+                    module.weight.data *= module.weight_mask
+                if hasattr(module, 'bias_mask') and module.bias is not None:
+                    module.bias.data *= module.bias_mask
+
+            elif isinstance(module, (nn.quantized.Conv2d, nn.quantized.Linear)):
+                # Handle quantized layers
+                if hasattr(module, 'weight_mask'):
+                    # Dequantize, apply mask, and re-quantize
+                    float_weights = module.weight().dequantize()
+                    float_weights *= module.weight_mask
+                    q_scale = module.weight().q_scale()
+                    q_zero_point = module.weight().q_zero_point()
+                    quantized_weights = torch.quantize_per_tensor(float_weights, scale=q_scale, zero_point=q_zero_point, dtype=torch.qint8)
+                    module._weight_bias()[0].data = quantized_weights

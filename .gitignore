@@ -2,3 +2,8 @@ checkpoints_student
 checkpoints_student_QAT
 __pycache__
 checkpoints_teacher
+student/*
+student*/
+CIFAR*/
+checkpoints*/
+*.bin

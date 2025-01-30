@@ -14,6 +14,8 @@ from utils import get_weights
 from torchvision.transforms import Resize
 from torchvision.transforms.functional import to_pil_image, to_tensor
 
+import timm
+
 class TeacherNetwork(nn.Module):
     def __init__(self):
         super(TeacherNetwork, self).__init__()
@@ -39,12 +41,37 @@ class TeacherNetwork50(nn.Module):
         return self.model(x)
 
 class TeacherNetworkBiT(nn.Module):
-    def __init__(self):
+    def __init__(self, size='R50x1'):
         super(TeacherNetworkBiT, self).__init__()
-        weights_cifar10 = get_weights('BiT-M-R50x1-CIFAR10')
-        self.model = ResNetV2(ResNetV2.BLOCK_UNITS['r50'], width_factor=1, head_size=10)  # NOTE: No new head.
-        self.model.load_from(weights_cifar10)
+        if size=='R50x1':
+            weights_cifar10 = get_weights('BiT-M-R50x1-CIFAR10')
+            self.model = ResNetV2(ResNetV2.BLOCK_UNITS['r50'], width_factor=1, head_size=10)  # NOTE: No new head.
+            self.model.load_from(weights_cifar10)
+        else:
+            self.model = ResNetV2(ResNetV2.BLOCK_UNITS['r101'], width_factor=1, head_size=10)  # NOTE: No new head.
+            checkpoint = torch.load('BiT-M-R101x1_step5000.tar')
+            state_dict = checkpoint['model']
+            new_state_dict = {}
+
+            for key in state_dict.keys():
+                new_key = key.replace("module.", "")  # Remove "module." prefix
+                new_state_dict[new_key] = state_dict[key]
+
+            self.model.load_state_dict(new_state_dict)
         self.resize = Resize((128, 128))  # Define the resize transform
+        
+class TeacherNetworkViT(nn.Module):
+    def __init__(self):
+        super(TeacherNetworkViT, self).__init__()
+        self.model = timm.create_model("vit_base_patch16_384", pretrained=True)
+        self.model.head = nn.Linear(net.head.in_features, 10)
+        checkpoint = torch.load('vit_cifar10_finetune.t7')
+        self.model.load_state_dict(checkpoint['model'])
+        self.resize = Resize(384)
+        
+    def forward(self, x):
+        x = self.resize(x)
+        return self.model(x)
 
     
     def forward(self, x):

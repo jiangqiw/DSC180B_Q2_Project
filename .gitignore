@@ -7,3 +7,6 @@ student*/
 CIFAR*/
 checkpoints*/
 *.bin
+*.pth
+*.tar
+*.t7

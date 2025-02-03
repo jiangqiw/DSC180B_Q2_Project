@@ -76,7 +76,7 @@ class EnsembleModel(nn.Module):
         return averaged_logits
     
 class StudentNetwork(nn.Module):
-    def __init__(self, teacher_net, q=False, fuse=False, qat=False, dif_arch = False):
+    def __init__(self, pruning_factor,  teacher_net, q=False, fuse=False, qat=False, dif_arch = False):
         super(StudentNetwork, self).__init__()
         if dif_arch:
             self.model = self.clone_model(TeacherNetwork())

@@ -504,44 +504,25 @@ def trainStudentOnHparamMixup(teacher_net, student_net, hparam, num_epochs,
 
 def dkdLoss(teacher_logits, student_logits, target, alpha=1.0, beta=8.0, temperature=4.0):
     """
-    Compute the Decoupled Knowledge Distillation (DKD) loss.
-    
-    Args:
-        teacher_logits: Teacher model predictions
-        student_logits: Student model predictions
-        target: Ground truth labels
-        alpha: Weight for target loss
-        beta: Weight for DKD loss
-        temperature: Temperature for softening probability distributions
+    Compute the Decoupled Knowledge Distillation (DKD) loss following mdistiller's approach.
     """
-    # Cross entropy loss with ground truth
-    ce_loss = F.cross_entropy(student_logits, target)
+    # Compute soft probabilities
+    pred_student = F.log_softmax(student_logits / temperature, dim=1)
+    pred_teacher = F.softmax(teacher_logits / temperature, dim=1)
     
-    # Get target class logits and non-target class logits
-    target_mask = F.one_hot(target, student_logits.size(-1)).bool()
-    target_logits = student_logits.masked_select(target_mask).view(-1, 1)
-    nontarget_logits = student_logits.masked_select(~target_mask).view(-1, student_logits.size(-1) - 1)
+    # Target mask
+    target_mask = F.one_hot(target, num_classes=student_logits.size(1)).bool()
     
-    teacher_target_logits = teacher_logits.masked_select(target_mask).view(-1, 1)
-    teacher_nontarget_logits = teacher_logits.masked_select(~target_mask).view(-1, teacher_logits.size(-1) - 1)
+    # Target class knowledge distillation (TCKD)
+    tckd_loss = F.kl_div(pred_student[target_mask], pred_teacher[target_mask], reduction='batchmean')
     
-    # Target class distillation
-    target_dist = (target_logits - teacher_target_logits) / temperature
+    # Non-target class knowledge distillation (NCKD)
+    nontarget_mask = ~target_mask
+    nckd_loss = F.kl_div(pred_student[nontarget_mask], pred_teacher[nontarget_mask], reduction='batchmean')
     
-    # Non-target class distillation
-    nontarget_dist = (nontarget_logits - teacher_nontarget_logits) / temperature
+    dkd_loss = alpha * tckd_loss + beta * nckd_loss
     
-    # Compute KL divergence for target and non-target logits
-    target_loss = -F.logsigmoid(target_dist).mean()
-    nontarget_loss = -F.logsigmoid(-nontarget_dist).mean()
-    
-    # Combined DKD loss
-    dkd_loss = target_loss + nontarget_loss
-    
-    # Total loss combining cross-entropy and DKD
-    total_loss = alpha * ce_loss + beta * dkd_loss
-    
-    return total_loss
+    return dkd_loss
 
 def studentTrainStepDKD(teacher_net, student_net, optimizer, X, y, alpha=1.0, beta=8.0, temperature=4.0):
     """
@@ -549,29 +530,16 @@ def studentTrainStepDKD(teacher_net, student_net, optimizer, X, y, alpha=1.0, be
     """
     optimizer.zero_grad()
     
-    # Get teacher predictions (no grad)
     with torch.no_grad():
         teacher_logits = teacher_net(X)
-    
-    # Get student predictions
     student_logits = student_net(X)
     
-    # Compute DKD loss
-    loss = dkdLoss(
-        teacher_logits=teacher_logits,
-        student_logits=student_logits,
-        target=y,
-        alpha=alpha,
-        beta=beta,
-        temperature=temperature
-    )
+    loss = dkdLoss(teacher_logits, student_logits, y, alpha, beta, temperature)
     
-    # Backpropagate and update
     loss.backward()
     optimizer.step()
     
-    # Calculate accuracy
-    accuracy = float(torch.sum(torch.argmax(student_logits, dim=1) == y).item()) / y.shape[0]
+    accuracy = (student_logits.argmax(dim=1) == y).float().mean().item()
     
     return loss.item(), accuracy
 

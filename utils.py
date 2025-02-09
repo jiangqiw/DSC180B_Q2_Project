@@ -192,6 +192,39 @@ def trainStudentOnHparam(teacher_net, student_net, hparam, num_epochs,
             loss = F.cross_entropy(student_pred, y)
         return loss
 
+	for epoch in range(num_epochs):
+		lr_scheduler.step()
+		if epoch == 0:
+			if val_loader is not None:
+				_, val_acc = getLossAccuracyOnDataset(student_net, val_loader, fast_device)
+				val_acc_list.append(val_acc)
+				print('epoch: %d validation accuracy: %.3f' %(epoch, val_acc))
+		for i, data in enumerate(train_loader, 0):
+			X, y = data
+			X, y = X.to(fast_device), y.to(fast_device)
+			loss, acc = studentTrainStep(teacher_net, student_net, studentLossFn, optimizer, X, y, T, alpha)
+			train_loss_list.append(loss)
+			train_acc_list.append(acc)
+		
+			if print_every > 0 and i % print_every == print_every - 1:
+				print('[%d, %5d/%5d] train loss: %.3f train accuracy: %.3f' %
+					  (epoch + 1, i + 1, len(train_loader), loss, acc))
+	
+		if val_loader is not None:
+			_, val_acc = getLossAccuracyOnDataset(student_net, val_loader, fast_device)
+			val_acc_list.append(val_acc)
+			print('epoch: %d validation accuracy: %.3f' %(epoch + 1, val_acc))
+		if quant:
+			if epoch > 3:
+				# Freeze quantizer parameters
+				student_net.apply(torch.ao.quantization.disable_observer)
+			if epoch > 2:
+				# Freeze batch norm mean and variance estimates
+				student_net.apply(torch.nn.intrinsic.qat.freeze_bn_stats)
+	return {'train_loss': train_loss_list, 
+			'train_acc': train_acc_list, 
+			'val_acc': val_acc_list}
+
     for epoch in range(num_epochs):
         lr_scheduler.step()
         if epoch == 0:

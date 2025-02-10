@@ -44,10 +44,12 @@ TODO: Dockerize
 To get started with this project, follow these steps to set up your environment:
 
 1. Clone the repository:
-   git clone <repository_url>
-   cd <repository_directory>
+   git clone [<repository_url>](https://github.com/jiangqiw/DSC180B_Q2_Project.git)
+
+   cd DSC180B_Q2_Project
 
 2. Create a virtual environment:
+
    python -m venv venv
 
 3. Activate the virtual environment:

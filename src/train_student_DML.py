@@ -16,7 +16,7 @@ UNDER CONSTRUCTION
 """
 
 def parse_arguments():
-    parser = argparse.ArgumentParser(description="Train student network with DKD")
+    parser = argparse.ArgumentParser(description="Train student network with DML")
     parser.add_argument('--temperatures', nargs='+', type=float, default=[4], help='Temperature values')
     parser.add_argument('--alphas', nargs='+', type=float, default=[2], help='Alpha values')
     parser.add_argument('--betas', nargs='+', type=float, default=[4, 8, 10], help='Beta values')
@@ -85,10 +85,8 @@ def main():
     
     for hparam in hparams_list:
         utils.reproducibilitySeed(use_gpu)
-        alpha = hparam['alpha']
-        beta = hparam['beta']
 
-        print('Training with hparams' + utils.hparamToString(hparam) + f'_{alpha}_{beta}')
+        print('Training with hparams' + utils.hparamToString(hparam))
         start_time = time.time()
 
         student_net = student.StudentNetwork()

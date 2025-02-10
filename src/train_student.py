@@ -10,7 +10,7 @@ import src.utilities.utils as utils
 from src.utilities.data_utils import load_data_CIFAR10
 
 def parse_arguments():
-    parser = argparse.ArgumentParser(description="Train student network with DKD")
+    parser = argparse.ArgumentParser(description="Train student network with basic knowledge distillation")
     parser.add_argument('--temperatures', nargs='+', type=float, default=[4], help='Temperature values')
     parser.add_argument('--alphas', nargs='+', type=float, default=[2], help='Alpha values')
     parser.add_argument('--betas', nargs='+', type=float, default=[4, 8, 10], help='Beta values')
@@ -93,7 +93,7 @@ def main():
             teacher_net, student_net, hparam, args.num_epochs,
             train_loader, val_loader,
             print_every=args.print_every,
-            fast_device=fast_device, quant=False, checkpoint_save_path=checkpoints_path_student, a=alpha, b=beta
+            fast_device=fast_device, quant=False, checkpoint_save_path=checkpoints_path_student
         )
 
         training_time = time.time() - start_time

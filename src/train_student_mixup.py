@@ -10,7 +10,7 @@ import src.utilities.utils as utils
 from src.utilities.data_utils import load_data_CIFAR10
 
 def parse_arguments():
-    parser = argparse.ArgumentParser(description="Train student network with DKD")
+    parser = argparse.ArgumentParser(description="Train student network with Mixup applied and no other methods.")
     parser.add_argument('--temperatures', nargs='+', type=float, default=[4], help='Temperature values')
     parser.add_argument('--alphas', nargs='+', type=float, default=[2], help='Alpha values')
     parser.add_argument('--betas', nargs='+', type=float, default=[4, 8, 10], help='Beta values')
@@ -71,18 +71,15 @@ def main():
     if not os.path.exists(csv_file):
         with open(csv_file, mode='w', newline='') as file:
             writer = csv.writer(file)
-            writer.writerow([
-                "Alpha", "Beta", "Temperature", "Dropout Input", "Dropout Hidden",
+            writer.writerow(["Alpha", "Beta", "Temperature", "Dropout Input", "Dropout Hidden",
                 "Weight Decay", "LR Decay", "Momentum", "Learning Rate",
                 "Test Accuracy", "Training Time (s)"
             ])
 
     for hparam in hparams_list:
         utils.reproducibilitySeed(use_gpu)
-        alpha = hparam['alpha']
-        beta = hparam['beta']
 
-        print('Training with hparams' + utils.hparamToString(hparam) + f'_{alpha}_{beta}')
+        print('Training with hparams' + utils.hparamToString(hparam))
         start_time = time.time()
 
         student_net = student.StudentNetwork()
@@ -93,12 +90,12 @@ def main():
             teacher_net, student_net, hparam, args.num_epochs,
             train_loader, val_loader,
             print_every=args.print_every,
-            fast_device=fast_device, quant=False, checkpoint_save_path=checkpoints_path_student, a=alpha, b=beta
+            fast_device=fast_device, quant=False, checkpoint_save_path=checkpoints_path_student
         )
 
         training_time = time.time() - start_time
 
-        final_save_path = os.path.join(root_dir, 'models', f"{utils.hparamToString(hparam)}_{alpha}_{beta}.tar")
+        final_save_path = os.path.join(root_dir, 'models', f"{utils.hparamToString(hparam)}.tar")
         torch.save({
             'results': results_distill,
             'model_state_dict': student_net.state_dict(),
@@ -111,8 +108,7 @@ def main():
 
         with open(csv_file, mode='a', newline='') as file:
             writer = csv.writer(file)
-            writer.writerow([
-                alpha, beta, hparam['T'], hparam['dropout_input'], hparam['dropout_hidden'],
+            writer.writerow([hparam['alpha'], hparam['beta'], hparam['T'], hparam['dropout_input'], hparam['dropout_hidden'],
                 hparam['weight_decay'], hparam['lr_decay'], hparam['momentum'], hparam['lr'],
                 test_accuracy, training_time
             ])

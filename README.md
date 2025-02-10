@@ -3,6 +3,10 @@
 ## Abstract
 This repository contains the project for DSC180 Q2, aimed at optimizing compressed models through a combination of knowledge distillation, pre-training pruning, and post-training quantization, specifically GPFQ algorithm, applied on the CIFAR10 dataset.
 
+Model compression techniques like **Knowledge Distillation (KD)**, **Pruning**, and **Post-Training Quantization (PTQ)** are crucial for deploying deep learning models on resource-constrained devices. This project explores the efficiency-accuracy trade-offs of these methods on the CIFAR-10 dataset using the GPFQ algorithm and other model compression techniques jointly.
+
+---
+
 ## Repo Overview
 
 The source code is included in the SRC folder, with the following structure:
@@ -38,42 +42,73 @@ The models folder should include trained student models, as well as the teacher 
 
 The model_checkpoints folder will save model checkpoints created during training.
 
-## Setup Instructions
-TODO: Dockerize
+---
 
-To get started with this project, follow these steps to set up your environment:
+## Environment Instructions
+> **Note:** A Docker setup is planned (TODO: Dockerize). For now, follow these steps:
 
-1. Clone the repository:
+1. **Clone the repository:**
+   ```bash
    git clone https://github.com/jiangqiw/DSC180B_Q2_Project.git
-
    cd DSC180B_Q2_Project
+   ```
 
-2. Create a virtual environment:
-
+2. **Create a virtual environment:**
+   ```bash
    python -m venv venv
+   ```
 
-3. Activate the virtual environment:
-   - On Windows:
+3. **Activate the virtual environment:**
+   - On **Windows**:
+     ```bash
      venv\Scripts\activate
-   - On macOS/Linux:
+     ```
+   - On **macOS/Linux**:
+     ```bash
      source venv/bin/activate
+     ```
 
-4. Install the required dependencies:
+4. **Install the required dependencies:**
+   ```bash
    pip install -r requirements.txt
+   ```
 
-Whenever you start working on the project, make sure to **activate the virtual environment**:
+---
 
-- On Windows:
-  venv\Scripts\activate
+## Downloading Pretrained Weights
 
-- On macOS/Linux:
-  source venv/bin/activate
+To use **ResNet-50** as the teacher model:
 
-You will also need to download the weights used to train models from external sources. To use Resnet-50 as the teacher, you can download the pytorch_model.bin file from this link: https://huggingface.co/edadaltocg/resnet50_cifar10/tree/main or train your own. This file should be named resnet50_cifar10_pretrained.bin for the scripts to work correctly.
+1. Download `pytorch_model.bin` from [Hugging Face](https://huggingface.co/edadaltocg/resnet50_cifar10/tree/main).
+2. Rename the file to:
+   ```
+   resnet50_cifar10_pretrained.bin
+   ```
+3. Place it in the `models/` directory.
+
+Alternatively, you can train your own teacher model and rename it to match this name, as long as it is a Resnet-50 architechture.
+
+---
 
 ## Training models
 
-To train a student model the scripts in the src folder can be ran. The student model checkpoints throughout training will be saved to the model_checkpoints/ folder, and the final model will be saved in the models/ folder.
+You can train student models using the provided scripts in the `src/` folder. Checkpoints are saved in the `model_checkpoints/` folder, and final models are saved in the `models/` folder.
 
-## Acknowlwdedgement
-This project references the code provided by https://github.com/shriramsb/Distilling-the-Knowledge-in-a-Neural-Network which is an implementation of a part of the paper "Distilling the Knowledge in a Neural Network" (https://arxiv.org/abs/1503.02531)S
+Example:
+```bash
+python src/train_student.py --temperatures 4 --learning_rates 0.0005 --learning_rate_decays 0.95 --weight_decays 0.0001 --momentums 0.9 --dropout_probabilities 0.0 0.0 --num_epochs 200 --print_every 100
+```
+### Arguements:
+- `--temperatures`: Temperature values for distillation (default: 4)
+- `--learning_rates`: Learning rates for training (default: 0.0005)
+- `--learning_rate_decays`: Learning rate decay factors (default: 0.95)
+- `--weight_decays`: Weight decay values for regularization (default: 0.0001)
+- `--momentums`: Momentum values for optimizers (default: 0.9)
+- `--dropout_probabilities`: Dropout probabilities for input and hidden layers (default: 0.0 0.0)
+- `--num_epochs`: Number of epochs to train (default: 200)
+- `--print_every`: Frequency of logging training progress (default: 100)
+
+---
+
+## Acknowledgements
+This project references the code provided by https://github.com/shriramsb/Distilling-the-Knowledge-in-a-Neural-Network which is an implementation of a part of the paper "Distilling the Knowledge in a Neural Network" (https://arxiv.org/abs/1503.02531).

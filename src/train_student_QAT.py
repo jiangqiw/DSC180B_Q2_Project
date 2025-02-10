@@ -95,12 +95,12 @@ def main():
             teacher_net, prepared_student, hparam, args.num_epochs,
             train_loader, val_loader,
             print_every=args.print_every,
-            fast_device=fast_device, quant=False, checkpoint_save_path=checkpoints_path_student, a=alpha, b=beta
+            fast_device=fast_device, quant=True, checkpoint_save_path=checkpoints_path_student
         )
 
         training_time = time.time() - start_time
 
-        final_save_path = os.path.join(checkpoints_path_student, f"{utils.hparamToString(hparam)}_{alpha}_{beta}.tar")
+        final_save_path = os.path.join(checkpoints_path_student, f"{utils.hparamToString(hparam)}.tar")
         torch.save({
             'results': results_distill,
             'model_state_dict': student_net.state_dict(),

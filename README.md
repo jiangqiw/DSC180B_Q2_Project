@@ -44,7 +44,7 @@ TODO: Dockerize
 To get started with this project, follow these steps to set up your environment:
 
 1. Clone the repository:
-   git clone [<repository_url>](https://github.com/jiangqiw/DSC180B_Q2_Project.git)
+   git clone https://github.com/jiangqiw/DSC180B_Q2_Project.git
 
    cd DSC180B_Q2_Project
 

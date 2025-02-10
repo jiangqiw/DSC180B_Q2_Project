@@ -5,22 +5,38 @@ This repository contains the project for DSC180 Q2, aimed at optimizing compress
 
 ## Repo Overview
 
-### `knowledge_distillation.ipynb`
-This jupyter notebook Contains the main code to train both the teacher and student models. Please Adjust the second cell in each notebook to accommodate the availability of GPU resources.
+The source code is included in the SRC folder, with the following structure:
+```
+src/
+└── GPFQ/
+    ├── quantize_neural_net.py
+    ├── step_algorithm.py
+└── models/
+    ├── pruning.py
+    ├── quantized_resnet18.py
+    ├── resnetv2.py
+    ├── student.py
+    └── teachers.py
+└── shampoo_optimizer/
+    ├── matrix_functions.py
+    ├── shampoo_utils.py
+    └── shampoo.py
+└── utilities/
+    ├── data_utils.py
+    ├── model_utils.py
+    ├── utils.py
+└── train_student_dkd.py # Script to train with the DKD method
+└── train_student_DML.py # Script to train with DML
+└── train_student_QAT.py # Script to train with QAT and mixup
+└── train_student.py # Script to train with no additional methods
+└── train_student_mixup.py # Script to train with mixup
+```
 
-### `utils.py`
-This code for distillation and training
+Notebooks used for experimentation can be found in the notebooks folder, but these should not be treated as functional to run scripts without modifications.
 
-### `networks.py`
-This code for setting up the network architectures (input).
+The models folder should include trained student models, as well as the teacher models used for training students.
 
-### `checkpoints_teacher`
-This directory stores the trained teacher networks along with their performance metrics.
-- **`results_teacher.csv`**: Contains results of the teacher network. Each record includes Dropout Input, Dropout Hidden, Weight Decay, LR Decay, Momentum, Learning Rate, Test Accuracy, and Training Time (s).
-
-### `checkpoints_student`
-This directory stores the trained student networks along with their performance metrics.
-- **`results_student.csv`**: Contains results of the student. Each record includes Alpha,Temperature,Dropout Input,Dropout Hidden,Weight Decay,LR Decay,Momentum,Learning Rate,Pruning Factor,Zero Parameters,Test Accuracy,Training Time (s).
+The model_checkpoints folder will save model checkpoints created during training.
 
 ## Acknowlwdedgement
-This project references the code provided by https://github.com/shriramsb/Distilling-the-Knowledge-in-a-Neural-Network which is an implementation of a part of the paper "Distilling the Knowledge in a Neural Network" (https://arxiv.org/abs/1503.02531)
+This project references the code provided by https://github.com/shriramsb/Distilling-the-Knowledge-in-a-Neural-Network which is an implementation of a part of the paper "Distilling the Knowledge in a Neural Network" (https://arxiv.org/abs/1503.02531)S

@@ -36,11 +36,10 @@ src/
 └── train_student_mixup.py # Script to train with mixup
 ```
 
-Notebooks used for experimentation can be found in the notebooks folder, but these should not be treated as functional to run scripts without modifications.
+- **Notebooks/**: Used for experimentation. Not intended for use outside of this purpose.
+- **models/**: Stores trained student models and teacher models.
+- **model_checkpoints/**: Saves model checkpoints during training.
 
-The models folder should include trained student models, as well as the teacher models used for training students.
-
-The model_checkpoints folder will save model checkpoints created during training.
 
 ---
 

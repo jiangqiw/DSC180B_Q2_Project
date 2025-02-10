@@ -26,6 +26,17 @@ class TeacherNetwork(nn.Module):
     def forward(self, x):
         return self.model(x)
 
+class TeacherNetworkUntrained(nn.Module):
+    def __init__(self):
+        super(TeacherNetworkUntrained, self).__init__()  # Corrected the use of super()
+        self.model = models.resnet18(pretrained=False)
+        self.model.fc = nn.Linear(self.model.fc.in_features, 10)  # Adjust for CIFAR-10
+        self.model.conv1 = nn.Conv2d(3, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+        self.model.maxpool = nn.Identity()
+
+    def forward(self, x):
+        return self.model(x)
+
 class TeacherNetwork50(nn.Module):
     def __init__(self):
         super(TeacherNetwork50, self).__init__()
@@ -81,7 +92,8 @@ class StudentNetwork(nn.Module):
         if dif_arch:
             self.model = self.clone_model(TeacherNetwork())
         else:
-            self.model = self.clone_model(teacher_net)
+            self.model = self.clone_model(TeacherNetworkUntrained())
+            #self.model = self.clone_model(teacher_net)
         if q:
             temp_state_dict = self.model.model.state_dict()
             self.model.model = QuantizedResNet18()

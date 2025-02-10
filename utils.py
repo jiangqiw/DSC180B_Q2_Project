@@ -165,7 +165,7 @@ def trainStudentOnHparam(teacher_net, student_net, hparam, num_epochs,
                         train_loader, val_loader, 
                         print_every=0, 
                         fast_device=torch.device('cuda:0'),
-                          quant=False):
+                          quant=False, checkpoint_save_path = 'checkpoints_student/checkpoints_student_NoKD/'):
     """
     Trains teacher on given hyperparameters for given number of epochs; Pass val_loader=None when not required to validate for every epoch
     Return: List of training loss, accuracy for each update calculated only on the batch; List of validation loss, accuracy for each epoch
@@ -211,6 +211,7 @@ def trainStudentOnHparam(teacher_net, student_net, hparam, num_epochs,
             _, val_acc = getLossAccuracyOnDataset(student_net, val_loader, fast_device)
             val_acc_list.append(val_acc)
             print('epoch: %d validation accuracy: %.3f' %(epoch + 1, val_acc))
+
         if quant:
             if epoch%5==0:
                 create_pruning_masks_quantized(student_net, (epoch/5)/10)
@@ -222,6 +223,11 @@ def trainStudentOnHparam(teacher_net, student_net, hparam, num_epochs,
             if epoch % 2:
                 # Freeze batch norm mean and variance estimates
                 student_net.apply(torch.nn.intrinsic.qat.freeze_bn_stats)
+
+        if (epoch + 1) % 25 == 0 or epoch + 1 == num_epochs:
+            torch.save(student_net.state_dict(), f"{checkpoint_save_path}student_epoch_{epoch}.pth")
+            print(f"Checkpoint saved Epoch {epoch + 1}: {checkpoint_save_path}student_epoch_{epoch}.pth")
+
     return {'train_loss': train_loss_list, 
             'train_acc': train_acc_list, 
             'val_acc': val_acc_list}
@@ -933,115 +939,3 @@ class ATLoss(nn.Module):
         Function for calculating single attention loss
         """
         return F.normalize(activation.pow(self.p).view(activation.size(0), -1))
-
-
-import torch
-import torch.optim as optim
-import torch.nn as nn
-import torch.nn.functional as F
-
-def trainStudentsDML(student_models, hparam, num_epochs, train_loader, val_loader, 
-                     optimizers, device=torch.device('cuda:0'), checkpoint_save_path='checkpoints_dml/'):
-    """
-    Train a cohort of student networks using Deep Mutual Learning (DML).
-
-    Args:
-        student_models (list of torch.nn.Module): List of student models.
-        hparam (dict): Hyperparameters for training.
-        num_epochs (int): Number of epochs.
-        train_loader (torch.utils.data.DataLoader): DataLoader for training.
-        val_loader (torch.utils.data.DataLoader): DataLoader for validation/testing.
-        optimizers (list of torch.optim.Optimizer): List of optimizers for each student model.
-        device (torch.device): Device to run the models on.
-        checkpoint_save_path (str): Path to save training checkpoints.
-    """
-    for model in student_models:
-        model.to(device).train()
-
-    criterion = nn.CrossEntropyLoss()
-
-    for epoch in range(num_epochs):
-        total_loss = [0] * len(student_models)
-        for data, labels in train_loader:
-            data, labels = data.to(device), labels.to(device)
-
-            # Zero the parameter gradients for all optimizers
-            for optimizer in optimizers:
-                optimizer.zero_grad()
-
-            # Forward pass for all students
-            outputs = [model(data) for model in student_models]
-
-            # Calculate loss for each student
-            losses = []
-            for idx, (student_output, optimizer) in enumerate(zip(outputs, optimizers)):
-                # Cross-entropy loss for correct labels
-                loss = criterion(student_output, labels)
-                
-                # DML Loss: each student learns from each other
-                for other_output in outputs:
-                    if student_output is not other_output:
-                        loss += F.mse_loss(F.softmax(student_output, dim=1), F.softmax(other_output, dim=1))
-                
-                losses.append(loss)
-                total_loss[idx] += loss.item()
-                loss.backward()
-                optimizer.step()
-
-        if epoch % 1 == 0:  # Logging interval
-            print(f'Epoch {epoch + 1}, Losses: {[l.item() for l in losses]}')
-
-        # Validation logic here if required
-        # Save models at checkpoints if necessary
-
-    # Save final models
-    for idx, model in enumerate(student_models):
-        torch.save(model.state_dict(), f"{checkpoint_save_path}student_{idx}_final.pth")
-
-    print("Training completed.")
-
-
-
-
-def trainDML(student_models, hparam, num_epochs, train_loader, val_loader, optimizers, fast_device=torch.device('cuda:0')):
-    for student in student_models:
-        student.to(fast_device).train()
-
-    criterion = nn.CrossEntropyLoss()
-
-    for epoch in range(num_epochs):
-        for data, labels in train_loader:
-            data, labels = data.to(fast_device), labels.to(fast_device)
-            
-            # Zero the parameter gradients for all optimizers
-            for optimizer in optimizers:
-                optimizer.zero_grad()
-            
-            # Get outputs from all students
-            outputs = [student(data) for student in student_models]
-
-            # Calculate and backpropagate losses
-            for i, student_output in enumerate(outputs):
-                loss = criterion(student_output, labels)  # Standard classification loss
-
-                # DML loss: each student learns from each other
-                dml_loss = 0
-                for j, other_output in enumerate(outputs):
-                    if i != j:
-                        dml_loss += F.mse_loss(F.softmax(student_output, dim=1), F.softmax(other_output, dim=1))
-
-                total_loss = loss + dml_loss / (len(student_models) - 1)  # Normalize DML loss
-                total_loss.backward(retain_graph=True if i < len(outputs) - 1 else False)  # Retain graph for all but last student
-
-            # Step the optimizers after all gradients are calculated
-            for optimizer in optimizers:
-                optimizer.step()
-
-        if (epoch + 1) % 25 == 0:
-            for idx, student in enumerate(student_models):
-                torch.save(student.state_dict(), f"{checkpoints_path_student}student_{idx}_epoch_{epoch + 1}.pth")
-                print(f"Checkpoint saved for Student {idx} at Epoch {epoch + 1}: {checkpoints_path_student}student_{idx}_epoch_{epoch + 1}.pth")
-
-        # Validation and further logging could be added here
-
-    print("Training completed.")

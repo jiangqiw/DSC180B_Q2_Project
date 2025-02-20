@@ -8,8 +8,11 @@ import gc
 import os
 
 
-from utils import InterruptException, extract_layers
-from step_algorithm import StepAlgorithm
+from utilities.model_utils import extract_layers
+from .step_algorithm import StepAlgorithm
+
+class InterruptException(Exception):
+    pass
 
 LINEAR_MODULE_TYPE = nn.Linear
 CONV2D_MODULE_TYPE = nn.Conv2d

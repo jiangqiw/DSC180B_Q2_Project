@@ -4,16 +4,16 @@ import itertools
 import os
 import torch
 import csv
-import src.models.teachers as teachers
-import src.models.student as student
-import src.utilities.utils as utils
-from src.utilities.data_utils import load_data_CIFAR10
+import models.teachers as teachers
+import models.student as student
+import utilities.utils as utils
+from utilities.data_utils import load_data_CIFAR10, load_data_CIFAR100
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Train student network with Mixup applied and no other methods.")
+    parser.add_argument('--dataset', type=str, choices=['cifar10', 'cifar100'], default='cifar10', help='Dataset to use (default: CIFAR10)')
     parser.add_argument('--temperatures', nargs='+', type=float, default=[4], help='Temperature values')
     parser.add_argument('--alphas', nargs='+', type=float, default=[2], help='Alpha values')
-    parser.add_argument('--betas', nargs='+', type=float, default=[4, 8, 10], help='Beta values')
     parser.add_argument('--learning_rates', nargs='+', type=float, default=[5e-4], help='Learning rates')
     parser.add_argument('--learning_rate_decays', nargs='+', type=float, default=[0.95], help='Learning rate decays')
     parser.add_argument('--weight_decays', nargs='+', type=float, default=[1e-4], help='Weight decays')
@@ -35,35 +35,36 @@ def main():
     current_dir = os.path.dirname(os.path.abspath(__file__))
     root_dir = os.path.abspath(os.path.join(current_dir, '..'))
 
-    checkpoints_path_student = os.path.join(root_dir, 'model_checkpoints', 'checkpoints_student_mixup')
-    teacher_path = os.path.join(root_dir, 'models', 'resnet50_cifar10_pretrained.bin')
+    checkpoints_path_student = os.path.join(root_dir, 'model_checkpoints', f'checkpoints_student_mixup_{args.dataset}')
+    teacher_path = os.path.join(root_dir, 'models', f'resnet50_{args.dataset}_pretrained.bin')
 
     if not os.path.exists(checkpoints_path_student):
         os.makedirs(checkpoints_path_student)
 
-    train_val_loader, train_loader, val_loader, test_loader = load_data_CIFAR10()
+    if args.dataset == 'cifar10':
+        train_val_loader, train_loader, val_loader, test_loader = load_data_CIFAR10()
+    else:
+        train_val_loader, train_loader, val_loader, test_loader = load_data_CIFAR100()
 
-    teacher_net = teachers.TeacherNetworkR50()
-    if not os.path.exists(teacher_path):
-        raise FileNotFoundError(f"Model file not found at: {teacher_path}")
-    checkpoint = torch.load(teacher_path)
-    teacher_net.load_state_dict(checkpoint)
-
+    teacher_net = teachers.TeacherNetworkR50(dataset=args.dataset, pretrained=True)
+    #if not os.path.exists(teacher_path):
+        #raise FileNotFoundError(f"Model file not found at: {teacher_path}")
+    #teacher_net.load_weights(teacher_path)
+    teacher_net.to(fast_device)
     _, test_accuracy = utils.getLossAccuracyOnDataset(teacher_net, test_loader, fast_device)
     print('Test accuracy: ', test_accuracy)
 
     hparams_list = []
-    for hparam_tuple in itertools.product(args.alphas, args.betas, args.temperatures, [tuple(args.dropout_probabilities)], args.weight_decays, args.learning_rate_decays, args.momentums, args.learning_rates):
+    for hparam_tuple in itertools.product(args.alphas, args.temperatures, [tuple(args.dropout_probabilities)], args.weight_decays, args.learning_rate_decays, args.momentums, args.learning_rates):
         hparam = {
             'alpha': hparam_tuple[0],
-            'beta': hparam_tuple[1],
-            'T': hparam_tuple[2],
-            'dropout_input': hparam_tuple[3][0],
-            'dropout_hidden': hparam_tuple[3][1],
-            'weight_decay': hparam_tuple[4],
-            'lr_decay': hparam_tuple[5],
-            'momentum': hparam_tuple[6],
-            'lr': hparam_tuple[7]
+            'T': hparam_tuple[1],
+            'dropout_input': hparam_tuple[2][0],
+            'dropout_hidden': hparam_tuple[2][1],
+            'weight_decay': hparam_tuple[3],
+            'lr_decay': hparam_tuple[4],
+            'momentum': hparam_tuple[5],
+            'lr': hparam_tuple[6]
         }
         hparams_list.append(hparam)
 
@@ -71,10 +72,9 @@ def main():
     if not os.path.exists(csv_file):
         with open(csv_file, mode='w', newline='') as file:
             writer = csv.writer(file)
-            writer.writerow(["Alpha", "Beta", "Temperature", "Dropout Input", "Dropout Hidden",
+            writer.writerow(["Alpha", "Temperature", "Dropout Input", "Dropout Hidden",
                 "Weight Decay", "LR Decay", "Momentum", "Learning Rate",
-                "Test Accuracy", "Training Time (s)"
-            ])
+                "Test Accuracy", "Training Time (s)"])
 
     for hparam in hparams_list:
         utils.reproducibilitySeed(use_gpu)
@@ -82,9 +82,8 @@ def main():
         print('Training with hparams' + utils.hparamToString(hparam))
         start_time = time.time()
 
-        student_net = student.StudentNetwork()
+        student_net = student.StudentNetwork(dataset=args.dataset)
         student_net.to(fast_device)
-        hparam_tuple = utils.hparamDictToTuple(hparam)
 
         results_distill = utils.train_student_on_hparam_mixup(
             teacher_net, student_net, hparam, args.num_epochs,
@@ -105,10 +104,9 @@ def main():
         _, test_accuracy = utils.getLossAccuracyOnDataset(student_net, test_loader, fast_device)
         print('Test accuracy: ', test_accuracy)
 
-
         with open(csv_file, mode='a', newline='') as file:
             writer = csv.writer(file)
-            writer.writerow([hparam['alpha'], hparam['beta'], hparam['T'], hparam['dropout_input'], hparam['dropout_hidden'],
+            writer.writerow([hparam['alpha'], hparam['T'], hparam['dropout_input'], hparam['dropout_hidden'],
                 hparam['weight_decay'], hparam['lr_decay'], hparam['momentum'], hparam['lr'],
                 test_accuracy, training_time
             ])

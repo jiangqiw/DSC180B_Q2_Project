@@ -4,35 +4,59 @@ import torchvision.models as models
 
 import torch.quantization
 
-from resnetv2 import ResNetV2
+from .resnetv2 import ResNetV2
 
-from model_utils import get_weights
+from utilities.model_utils import get_weights, modify_resnet
 
 from torchvision.transforms import Resize
 
 import timm
-
-from model_utils import modify_resnet
+import detectors
 
 
 class TeacherNetworkR18(nn.Module):
-    def __init__(self):
+    def __init__(self, dataset='cifar10'):
         super(TeacherNetworkR18, self).__init__()
         # Load a pre-trained ResNet-18 and adjust the final layer for 10 classes (CIFAR-10)
-        self.model = modify_resnet(models.resnet18(pretrained=True), 10)
+
+        if dataset=='cifar10':
+            self.model = modify_resnet(models.resnet18(pretrained=False), 10)    
+        elif dataset=='cifar100':
+            self.model = modify_resnet(models.resnet18(pretrained=False), 100)
+        else:
+            raise RuntimeError('Dataset not implemented')
 
     
     def forward(self, x):
         return self.model(x)
+    
+    def load_weights(self, path):
+        checkpoint = torch.load(path)
+        self.model.load_state_dict(checkpoint)
 
 class TeacherNetworkR50(nn.Module):
-    def __init__(self):
+    def __init__(self, dataset='cifar10', pretrained=True):
         super(TeacherNetworkR50, self).__init__()
-        # Load a pre-trained ResNet-18 and adjust the final layer for 10 classes (CIFAR-10)
-        self.model = modify_resnet(models.resnet50(pretrained=True), 10)
+        if dataset=='cifar10':
+            if pretrained:
+                self.model = timm.create_model('resnet50_cifar10', pretrained=True)
+            else:
+                self.model = modify_resnet(models.resnet50(pretrained=False), 10)
+        elif dataset=='cifar100':
+            if pretrained:
+                self.model = timm.create_model('resnet50_cifar100', pretrained=True)
+            else:
+                self.model = modify_resnet(models.resnet50(pretrained=False), 100)
+        else:
+            raise RuntimeError('Dataset not implemented')
+
 
     def forward(self, x):
         return self.model(x)
+
+    def load_weights(self, path):
+        checkpoint = torch.load(path)
+        self.model.load_state_dict(checkpoint)
     
 class TeacherNetworkBiT(nn.Module):
     def __init__(self, size='R50x1'):

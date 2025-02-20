@@ -20,7 +20,7 @@ SUPPORTED_BLOCK_TYPE = {nn.Sequential,
                         }
 
 
-# Helper Function to Modify ResNet for CIFAR-10
+# Helper Function to Modify ResNet
 
 def modify_resnet(model: nn.Module, num_classes: int) -> nn.Module:
     model.fc = nn.Linear(model.fc.in_features, num_classes)

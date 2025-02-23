@@ -166,7 +166,7 @@ def student_train_step_mixup(
     optimizer.zero_grad()
     teacher_net.eval()
 
-    y_onehot = F.one_hot(y, num_classes=10).float()
+    y_onehot = F.one_hot(y, num_classes=teacher_net.get_num_classes()).float()
 
     with torch.no_grad():
         teacher_logits = teacher_net(X)
@@ -211,17 +211,15 @@ def train_student_on_hparam_mixup(
     print_every=0,
     fast_device=torch.device('cuda:0'),
     quant=False,
-    mixup_alpha=1.0,
     checkpoint_save_path='checkpoints_student_QAT/',
-    resume_checkpoint=False,
-    optimizer_choice='adam'
+    resume_checkpoint=None
 ):
     train_loss_list, train_acc_list, val_acc_list, val_loss_list = [], [], [], []
     T, alpha = hparam['T'], hparam['alpha']
 
     student_net.dropout_input = hparam['dropout_input']
     student_net.dropout_hidden = hparam['dropout_hidden']
-
+    optimizer_choice = hparam['opt']
     optimizer = (optim.Adam(student_net.parameters(), lr=hparam['lr'], weight_decay=hparam['weight_decay'], eps=0.01)
                  if optimizer_choice == 'adam'
                  else optim.SGD(student_net.parameters(), lr=hparam['lr'], momentum=hparam['momentum'], weight_decay=hparam['weight_decay']))
@@ -256,7 +254,7 @@ def train_student_on_hparam_mixup(
 
             loss, acc = student_train_step_mixup(
                 teacher_net, student_net, student_loss_fn, optimizer, X, y, T, alpha,
-                mixup_alpha=mixup_alpha, update_teacher=False, teacher_optimizer=teacher_optimizer, teacher_loss_fn=teacher_loss_fn
+                mixup_alpha=alpha, update_teacher=False, teacher_optimizer=teacher_optimizer, teacher_loss_fn=teacher_loss_fn
             )
 
             train_loss_list.append(loss)
@@ -344,7 +342,7 @@ def trainStudentWithDKD(teacher_net, student_net, hparam, num_epochs,
                        train_loader, val_loader, 
                        print_every=0, 
                        fast_device=torch.device('cuda:0'),
-                       quant=False, checkpoint_save_path = 'checkpoints_student_DKD/', a=1.0, b=8.0):
+                       quant=False, checkpoint_save_path = 'checkpoints_student_DKD/'):
     """
     Train student network using Decoupled Knowledge Distillation
     """
@@ -363,8 +361,8 @@ def trainStudentWithDKD(teacher_net, student_net, hparam, num_epochs,
     lr_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs)
     
     # DKD hyperparameters
-    alpha = hparam.get('alpha', a)
-    beta = hparam.get('beta', b)
+    alpha = hparam.get('alpha')
+    beta = hparam.get('beta')
     temperature = hparam.get('temperature', 4.0)
     
     for epoch in range(num_epochs):
@@ -379,8 +377,8 @@ def trainStudentWithDKD(teacher_net, student_net, hparam, num_epochs,
                 student_net=student_net,
                 optimizer=optimizer,
                 X=X, y=y,
-                alpha=a,
-                beta=b,
+                alpha=alpha,
+                beta=beta,
                 temperature=temperature
             )
             
@@ -392,7 +390,7 @@ def trainStudentWithDKD(teacher_net, student_net, hparam, num_epochs,
                       f'Loss: {loss:.3f}, Accuracy: {acc:.3f}')
                 
         if (epoch + 1) % 25 == 0 or epoch + 1 == num_epochs:
-            checkpoint_path = checkpoint_save_path + hparamToString(hparam) +  f'_{alpha}_{beta}' + f'_checkpoint_epoch_{epoch + 1}.tar'
+            checkpoint_path = checkpoint_save_path + hparamToString(hparam) + f'_checkpoint_epoch_{epoch + 1}.tar'
             torch.save({
                 'model_state_dict': student_net.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),

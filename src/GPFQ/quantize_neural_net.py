@@ -161,7 +161,8 @@ class QuantizeNeuralNet:
                                                 self.mlp_percentile,
                                                 self.reg, self.lamb,
                                                 groups, self.stochastic_quantization,
-                                                self.device
+                                                self.device,
+                                                verbose=verbose
                                                 )
 
                 self.quantized_network_layers[layer_idx].weight.data = Q.float()
@@ -191,7 +192,8 @@ class QuantizeNeuralNet:
                                             self.cnn_percentile,
                                             self.reg, self.lamb,
                                             groups, self.stochastic_quantization,
-                                            self.device
+                                            self.device,
+                                            verbose=verbose
                                             )
                 
                 self.quantized_network_layers[layer_idx].weight.data = Q.reshape(W_shape).float()

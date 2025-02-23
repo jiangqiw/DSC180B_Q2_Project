@@ -13,7 +13,7 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description="Train student network with Mixup applied and no other methods.")
     parser.add_argument('--dataset', type=str, choices=['cifar10', 'cifar100'], default='cifar10', help='Dataset to use (default: CIFAR10)')
     parser.add_argument('--temperatures', nargs='+', type=float, default=[4], help='Temperature values')
-    parser.add_argument('--alphas', nargs='+', type=float, default=[2], help='Alpha values')
+    parser.add_argument('--alphas', nargs='+', type=float, default=[1.0], help='Alpha values')
     parser.add_argument('--learning_rates', nargs='+', type=float, default=[5e-4], help='Learning rates')
     parser.add_argument('--learning_rate_decays', nargs='+', type=float, default=[0.95], help='Learning rate decays')
     parser.add_argument('--weight_decays', nargs='+', type=float, default=[1e-4], help='Weight decays')
@@ -21,6 +21,9 @@ def parse_arguments():
     parser.add_argument('--dropout_probabilities', nargs='+', type=float, default=[0.0, 0.0], help='Dropout probabilities (input, hidden)')
     parser.add_argument('--num_epochs', type=int, default=200, help='Number of epochs')
     parser.add_argument('--print_every', type=int, default=100, help='Print frequency')
+    parser.add_argument('--optimizer', type=str, choices=['adam', 'sgd'], default='adam', help="Optimizer to use (Default: Adam)")
+    parser.add_argument('--resume_checkpoint', required=False, help="Include checkpoint path if previous checkpoint is to be resumed.")
+
     return parser.parse_args()
 
 def main():
@@ -36,6 +39,10 @@ def main():
     root_dir = os.path.abspath(os.path.join(current_dir, '..'))
 
     checkpoints_path_student = os.path.join(root_dir, 'model_checkpoints', f'checkpoints_student_mixup_{args.dataset}')
+    if args.resume_checkpoint:
+        student_checkpoint = os.path.join(checkpoints_path_student, args.resume_checkpoint)
+    else:
+        student_checkpoint = None
     teacher_path = os.path.join(root_dir, 'models', f'resnet50_{args.dataset}_pretrained.bin')
 
     if not os.path.exists(checkpoints_path_student):
@@ -46,16 +53,13 @@ def main():
     else:
         train_val_loader, train_loader, val_loader, test_loader = load_data_CIFAR100()
 
-    teacher_net = teachers.TeacherNetworkR50(dataset=args.dataset, pretrained=True)
-    #if not os.path.exists(teacher_path):
-        #raise FileNotFoundError(f"Model file not found at: {teacher_path}")
-    #teacher_net.load_weights(teacher_path)
+    teacher_net = teachers.TeacherNetworkR50(dataset=args.dataset, checkpoint_path=teacher_path)
     teacher_net.to(fast_device)
     _, test_accuracy = utils.getLossAccuracyOnDataset(teacher_net, test_loader, fast_device)
     print('Test accuracy: ', test_accuracy)
 
     hparams_list = []
-    for hparam_tuple in itertools.product(args.alphas, args.temperatures, [tuple(args.dropout_probabilities)], args.weight_decays, args.learning_rate_decays, args.momentums, args.learning_rates):
+    for hparam_tuple in itertools.product(args.alphas, args.temperatures, [tuple(args.dropout_probabilities)], args.weight_decays, args.learning_rate_decays, args.momentums, args.learning_rates, [args.optimizer]):
         hparam = {
             'alpha': hparam_tuple[0],
             'T': hparam_tuple[1],
@@ -64,7 +68,8 @@ def main():
             'weight_decay': hparam_tuple[3],
             'lr_decay': hparam_tuple[4],
             'momentum': hparam_tuple[5],
-            'lr': hparam_tuple[6]
+            'lr': hparam_tuple[6],
+            'opt': hparam_tuple[7]
         }
         hparams_list.append(hparam)
 
@@ -73,7 +78,7 @@ def main():
         with open(csv_file, mode='w', newline='') as file:
             writer = csv.writer(file)
             writer.writerow(["Alpha", "Temperature", "Dropout Input", "Dropout Hidden",
-                "Weight Decay", "LR Decay", "Momentum", "Learning Rate",
+                "Weight Decay", "LR Decay", "Momentum", "Learning Rate", "Optimizer",
                 "Test Accuracy", "Training Time (s)"])
 
     for hparam in hparams_list:
@@ -89,7 +94,7 @@ def main():
             teacher_net, student_net, hparam, args.num_epochs,
             train_loader, val_loader,
             print_every=args.print_every,
-            fast_device=fast_device, quant=False, checkpoint_save_path=checkpoints_path_student
+            fast_device=fast_device, quant=False, checkpoint_save_path=checkpoints_path_student, resume_checkpoint=student_checkpoint
         )
 
         training_time = time.time() - start_time
@@ -107,7 +112,7 @@ def main():
         with open(csv_file, mode='a', newline='') as file:
             writer = csv.writer(file)
             writer.writerow([hparam['alpha'], hparam['T'], hparam['dropout_input'], hparam['dropout_hidden'],
-                hparam['weight_decay'], hparam['lr_decay'], hparam['momentum'], hparam['lr'],
+                hparam['weight_decay'], hparam['lr_decay'], hparam['momentum'], hparam['lr'], hparam['opt'],
                 test_accuracy, training_time
             ])
 

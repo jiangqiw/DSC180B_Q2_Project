@@ -2,6 +2,7 @@ import torch
 import torchvision
 import torchvision.transforms as transforms
 import os
+import json
 
 def load_data_CIFAR10(batch_size=128):
     
@@ -76,3 +77,18 @@ def load_data_CIFAR100(batch_size=128):
     test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=2)
 
     return train_val_loader, train_loader, val_loader, test_loader
+
+def load_existing_quant_data(json_path):
+    """ Load existing JSON data if the file exists. """
+    if os.path.exists(json_path):
+        with open(json_path, "r") as f:
+            return json.load(f)
+    return {}
+
+
+def save_quant_data(json_path, data):
+    """ Save the data dictionary to a JSON file. """
+    os.makedirs(os.path.dirname(json_path), exist_ok=True)
+    with open(json_path, "w") as f:
+        json.dump(data, f, indent=4)
+    print(f"Data saved to {json_path}")

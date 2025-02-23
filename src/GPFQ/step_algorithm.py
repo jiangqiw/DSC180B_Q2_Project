@@ -105,7 +105,7 @@ class StepAlgorithm:
         
     
     def _quantization(W, Q, U, analog_layer_input, quantized_layer_input, quantizer, 
-                      step_size, boundary_idx, lamb):
+                      step_size, boundary_idx, lamb, verbose=False):
         '''
         Quantize the whole layer.
 
@@ -137,7 +137,7 @@ class StepAlgorithm:
             Whether or not to use stochastic quantization
         '''
 
-        for t in tqdm(range(W.shape[1])):
+        for t in tqdm(range(W.shape[1]), disable=not verbose):
             U += W[:, t].unsqueeze(1) * analog_layer_input[:, t].unsqueeze(0)
             norm = torch.linalg.norm(quantized_layer_input[:, t], 2) ** 2
             if norm > 0:
@@ -150,7 +150,7 @@ class StepAlgorithm:
 
     def _quantize_layer(W, analog_layer_input, quantized_layer_input, m, 
                         step_size, boundary_idx, percentile,
-                        reg, lamb, groups, stochastic_quantization, device):
+                        reg, lamb, groups, stochastic_quantization, device, verbose=False):
         '''
         Quantize one layer in parallel.
 
@@ -206,12 +206,12 @@ class StepAlgorithm:
                 quantizer = StepAlgorithm._stochastic_msq
             else:
                 quantizer = StepAlgorithm._msq
-                
-        print(f'The number of groups: {groups}\n')
+        if verbose:
+            print(f'The number of groups: {groups}\n')
         
         if groups == 1: # no group convolutio
             StepAlgorithm._quantization(W, Q, U, analog_layer_input, quantized_layer_input, quantizer, 
-                      step_size, boundary_idx, lamb)
+                      step_size, boundary_idx, lamb, verbose=verbose)
             
             quantize_adder = U.T
             relative_adder = torch.linalg.norm(quantize_adder, axis=0) / (torch.linalg.norm(analog_layer_input @ W.T, axis=0) + 1e-5)
@@ -234,7 +234,7 @@ class StepAlgorithm:
 
             for i in range(groups):
                 StepAlgorithm._quantization(W[i], Q[i], U[i], analog_layer_input[:,i,:], quantized_layer_input[:,i,:], quantizer, 
-                      step_size, boundary_idx, lamb)
+                      step_size, boundary_idx, lamb, verbose=verbose)
                 
                 quantize_error += torch.linalg.norm(U[i].T, ord='fro') 
                 relative_quantize_error += torch.linalg.norm(U[i].T, ord='fro') / torch.linalg.norm(analog_layer_input[:,i,:] @ W[i].T, ord='fro')

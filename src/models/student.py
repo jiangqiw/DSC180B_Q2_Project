@@ -1,4 +1,5 @@
 from copy import deepcopy
+import torch
 import torch.nn as nn
 import torchvision
 from torch.quantization import QuantStub, DeQuantStub
@@ -40,3 +41,8 @@ class StudentNetwork(nn.Module):
 
     def clone_model(self, model: nn.Module) -> nn.Module:
         return deepcopy(model)
+
+    def load_model(self, weights_path):
+        checkpoint = torch.load(weights_path)
+        new_state_dict = {k.replace("model.", ""): v for k, v in checkpoint["model_state_dict"].items()}
+        self.model.load_state_dict(new_state_dict)

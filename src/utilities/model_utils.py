@@ -57,6 +57,7 @@ def count_zero_parameters(model):
         int: Total number of trainable parameters that are exactly zero.
     """
     return sum((p.data == 0).sum().item() for p in model.parameters() if p.requires_grad)
+
   
 def print_size_of_model(model):
     torch.save(model.state_dict(), "temp.p")

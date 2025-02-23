@@ -7,13 +7,14 @@ import csv
 import src.models.teachers as teachers
 import src.models.student as student
 import src.utilities.utils as utils
-from src.utilities.data_utils import load_data_CIFAR10
+from src.utilities.data_utils import load_data_CIFAR10, load_data_CIFAR100
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Train student network with DKD")
+    parser.add_argument('--dataset', type=str, choices=['cifar10', 'cifar100'], default='cifar10', help='Dataset to use (default: CIFAR10)')
     parser.add_argument('--temperatures', nargs='+', type=float, default=[4], help='Temperature values')
-    parser.add_argument('--alphas', nargs='+', type=float, default=[2], help='Alpha values')
-    parser.add_argument('--betas', nargs='+', type=float, default=[4, 8, 10], help='Beta values')
+    parser.add_argument('--alphas', nargs='+', type=float, default=[1], help='Alpha values')
+    parser.add_argument('--betas', nargs='+', type=float, default=[4], help='Beta values')
     parser.add_argument('--learning_rates', nargs='+', type=float, default=[5e-4], help='Learning rates')
     parser.add_argument('--learning_rate_decays', nargs='+', type=float, default=[0.95], help='Learning rate decays')
     parser.add_argument('--weight_decays', nargs='+', type=float, default=[1e-4], help='Weight decays')
@@ -21,6 +22,7 @@ def parse_arguments():
     parser.add_argument('--dropout_probabilities', nargs='+', type=float, default=[0.0, 0.0], help='Dropout probabilities (input, hidden)')
     parser.add_argument('--num_epochs', type=int, default=200, help='Number of epochs')
     parser.add_argument('--print_every', type=int, default=100, help='Print frequency')
+    parser.add_argument('--optimizer', type=str, choices=['adam', 'sgd'], default='adam', help="Optimizer to use (Default: Adam)")
     return parser.parse_args()
 
 def main():
@@ -35,19 +37,19 @@ def main():
     current_dir = os.path.dirname(os.path.abspath(__file__))
     root_dir = os.path.abspath(os.path.join(current_dir, '..'))
 
-    checkpoints_path_student = os.path.join(root_dir, 'model_checkpoints', 'checkpoints_student_DKD')
-    teacher_path = os.path.join(root_dir, 'models', 'resnet50_cifar10_pretrained.bin')
+    checkpoints_path_student = os.path.join(root_dir, 'model_checkpoints', f'checkpoints_student_DKD_{args.dataset}')
+    teacher_path = os.path.join(root_dir, 'models', f'resnet50_{args.dataset}_pretrained.bin')
 
-    if not os.path.exists(checkpoints_path_student):
-        os.makedirs(checkpoints_path_student)
+    #if not os.path.exists(checkpoints_path_student):
+        #os.makedirs(checkpoints_path_student)
+    if args.dataset == 'cifar10':
+        train_val_loader, train_loader, val_loader, test_loader = load_data_CIFAR10()
+    if args.dataset == 'cifar100':
+        train_val_loader, train_loader, val_loader, test_loader = load_data_CIFAR100()
 
-    train_val_loader, train_loader, val_loader, test_loader = load_data_CIFAR10()
-
-    teacher_net = teachers.TeacherNetworkR50()
-    if not os.path.exists(teacher_path):
-        raise FileNotFoundError(f"Model file not found at: {teacher_path}")
-    checkpoint = torch.load(teacher_path)
-    teacher_net.load_state_dict(checkpoint)
+    teacher_net = teachers.TeacherNetworkR50(pretrained=True)
+    #if not os.path.exists(teacher_path):
+        #raise FileNotFoundError(f"Model file not found at: {teacher_path}")
 
     _, test_accuracy = utils.getLossAccuracyOnDataset(teacher_net, test_loader, fast_device)
     print('Test accuracy: ', test_accuracy)
@@ -73,16 +75,14 @@ def main():
             writer = csv.writer(file)
             writer.writerow([
                 "Alpha", "Beta", "Temperature", "Dropout Input", "Dropout Hidden",
-                "Weight Decay", "LR Decay", "Momentum", "Learning Rate",
+                "Weight Decay", "LR Decay", "Momentum", "Learning Rate", ""
                 "Test Accuracy", "Training Time (s)"
             ])
 
     for hparam in hparams_list:
         utils.reproducibilitySeed(use_gpu)
-        alpha = hparam['alpha']
-        beta = hparam['beta']
 
-        print('Training with hparams' + utils.hparamToString(hparam) + f'_{alpha}_{beta}')
+        print('Training with hparams' + utils.hparamToString(hparam))
         start_time = time.time()
 
         student_net = student.StudentNetwork()
@@ -93,12 +93,12 @@ def main():
             teacher_net, student_net, hparam, args.num_epochs,
             train_loader, val_loader,
             print_every=args.print_every,
-            fast_device=fast_device, quant=False, checkpoint_save_path=checkpoints_path_student, a=alpha, b=beta
+            fast_device=fast_device, quant=False, checkpoint_save_path=checkpoints_path_student
         )
 
         training_time = time.time() - start_time
 
-        final_save_path = os.path.join(checkpoints_path_student, f"{utils.hparamToString(hparam)}_{alpha}_{beta}.tar")
+        final_save_path = os.path.join(checkpoints_path_student, f"{utils.hparamToString(hparam)}.tar")
         torch.save({
             'results': results_distill,
             'model_state_dict': student_net.state_dict(),
@@ -112,7 +112,7 @@ def main():
         with open(csv_file, mode='a', newline='') as file:
             writer = csv.writer(file)
             writer.writerow([
-                alpha, beta, hparam['T'], hparam['dropout_input'], hparam['dropout_hidden'],
+                hparam['alpha'], hparam['beta'], hparam['T'], hparam['dropout_input'], hparam['dropout_hidden'],
                 hparam['weight_decay'], hparam['lr_decay'], hparam['momentum'], hparam['lr'],
                 test_accuracy, training_time
             ])

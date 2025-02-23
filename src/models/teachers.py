@@ -35,21 +35,17 @@ class TeacherNetworkR18(nn.Module):
         self.model.load_state_dict(checkpoint)
 
 class TeacherNetworkR50(nn.Module):
-    def __init__(self, dataset='cifar10', pretrained=True):
+    def __init__(self, dataset='cifar10', checkpoint_path=None):
         super(TeacherNetworkR50, self).__init__()
+        self.dataset = dataset
         if dataset=='cifar10':
-            if pretrained:
-                self.model = timm.create_model('resnet50_cifar10', pretrained=True)
-            else:
-                self.model = modify_resnet(models.resnet50(pretrained=False), 10)
+            self.model = modify_resnet(models.resnet50(pretrained=False), 10)
         elif dataset=='cifar100':
-            if pretrained:
-                self.model = timm.create_model('resnet50_cifar100', pretrained=True)
-            else:
-                self.model = modify_resnet(models.resnet50(pretrained=False), 100)
+            self.model = modify_resnet(models.resnet50(pretrained=False), 100)
         else:
             raise RuntimeError('Dataset not implemented')
-
+        if checkpoint_path:
+            self.load_weights(checkpoint_path)
 
     def forward(self, x):
         return self.model(x)
@@ -57,6 +53,9 @@ class TeacherNetworkR50(nn.Module):
     def load_weights(self, path):
         checkpoint = torch.load(path)
         self.model.load_state_dict(checkpoint)
+    
+    def get_num_classes(self):
+        return 10 if self.dataset=='cifar10' else 100
     
 class TeacherNetworkBiT(nn.Module):
     def __init__(self, size='R50x1'):

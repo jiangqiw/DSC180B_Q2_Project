@@ -205,7 +205,7 @@ def main():
     # Labels and legend
     plt.xlabel('Bits')
     plt.ylabel('Accuracy')
-    plt.title('Quantization Effects on Accuracy')
+    plt.title('Decoupled KD (CIFAR100): Quantization Effects on Accuracy')
     plt.legend()
     plt.grid(True)
 
@@ -221,65 +221,108 @@ def main():
     cmap_teacher = plt.cm.Blues
     norm_student = plt.Normalize(vmin=min(args.bits), vmax=max(args.bits))  
     norm_teacher = plt.Normalize(vmin=min(args.bits), vmax=max(args.bits))  
-
     # Define fixed colors for pre-quantization models
     pre_student_color = "red"
     pre_teacher_color = "blue"
-
     # Define marker styles
     marker_mapping = {
         "pre_student": "o",  # Circle for pre-quantization Student
         "post_student": "s",  # Square for post-quantization Student
         "pre_teacher": "^",  # Triangle for pre-quantization Teacher
-        "post_teacher": "D"  # Diamond for post-quantization Teacher
+        "post_teacher": "s"  # Diamond for post-quantization Teacher
     }
-
     # Assign colors dynamically
     colors = []
     markers = []
-
     # Add Pre-Quantization Student
     colors.append(pre_student_color)
     markers.append(marker_mapping["pre_student"])
-
     # Add Pre-Quantization Teacher
     colors.append(pre_teacher_color)
     markers.append(marker_mapping["pre_teacher"])
 
+    pre_quant_bits = 32
+    
+    # Calculate params * bits
+    pre_quantization_student_memory = pre_quantization_student_params * pre_quant_bits
+    pre_quantization_teacher_memory = pre_quantization_teacher_params * pre_quant_bits
+    post_quantization_student_memory = [post_quantization_student_params[i] * args.bits[i] for i in range(len(args.bits))]
+    post_quantization_teacher_memory = [post_quantization_teacher_params[i] * args.bits[i] for i in range(len(args.bits))]
+    
     # Plot Scatter
     fig, ax = plt.subplots(figsize=(8, 6))
+    
+    # Plot Post-Quantization Student
+    for i in range(len(args.bits)-1):
+        ax.plot([post_quantization_student_memory[i], post_quantization_student_memory[i+1]],
+                [post_quantization_student_accuracy[i], post_quantization_student_accuracy[i+1]],
+                color='red', alpha=0.5, linestyle='-', linewidth=1.5)
+    
+    # Plot Post-Quantization Teacher
+    for i in range(len(args.bits)-1):
+        ax.plot([post_quantization_teacher_memory[i], post_quantization_teacher_memory[i+1]],
+                [post_quantization_teacher_accuracy[i], post_quantization_teacher_accuracy[i+1]],
+                color='blue', alpha=0.5, linestyle='-', linewidth=1.5)
+
+    bit_32_index = None
+    try:
+        bit_32_index = args.bits.index(32)
+    except ValueError:
+        bit_32_index = args.bits.index(max(args.bits))
 
     # Plot Pre-Quantization Student
-    ax.scatter(pre_quantization_student_params, pre_quantization_student_accuracy, 
-                color=pre_student_color, marker=marker_mapping["pre_student"], label="Student (Pre-Quantization)", s=50)
-
+    ax.scatter(pre_quantization_student_memory, pre_quantization_student_accuracy, 
+                color=pre_student_color, marker=marker_mapping["pre_student"], label="Student (Pre-Quantization)", s=40, zorder=10)
     # Plot Pre-Quantization Teacher
-    ax.scatter(pre_quantization_teacher_params, pre_quantization_teacher_accuracy, 
-                color=pre_teacher_color, marker=marker_mapping["pre_teacher"], label="Teacher (Pre-Quantization)", s=50)
-
-    # Plot Post-Quantization Student points using Viridis colormap
+    ax.scatter(pre_quantization_teacher_memory, pre_quantization_teacher_accuracy, 
+                color=pre_teacher_color, marker=marker_mapping["pre_teacher"], label="Teacher (Pre-Quantization)", s=40, zorder=10)
+    
+    # Plot Post-Quantization Student points
     for i, bit in enumerate(args.bits):
         color_student = cmap_student(norm_student(bit))
-        ax.scatter(post_quantization_student_params[i], post_quantization_student_accuracy[i], 
-                color=color_student, marker=marker_mapping["post_student"], s=100)
-
-    # Plot Post-Quantization Teacher points using Plasma colormap
+        label = f"Student ({bit}-bit)" if i == bit_32_index else None
+        ax.scatter(post_quantization_student_memory[i], post_quantization_student_accuracy[i], 
+                color=color_student, marker=marker_mapping["post_student"], s=50, zorder=10, label=label)
+    # Plot Post-Quantization Teacher points
     for i, bit in enumerate(args.bits):
         color_teacher = cmap_teacher(norm_teacher(bit))
-        ax.scatter(post_quantization_teacher_params[i], post_quantization_teacher_accuracy[i], 
-                color=color_teacher, marker=marker_mapping["post_teacher"], s=100)
+        label = f"Teacher ({bit}-bit)" if i == bit_32_index else None
+        ax.scatter(post_quantization_teacher_memory[i], post_quantization_teacher_accuracy[i], 
+                color=color_teacher, marker=marker_mapping["post_teacher"], s=50, zorder=10, label=label)
     
-
     # Labels and title
-    plt.xlabel("Number of Parameters")
+    plt.xlabel("Non-Zero Parameters × Bits")
     plt.ylabel("Accuracy (%)")
-    plt.title("Accuracy vs. Number of Parameters (Pre & Post Quantization)")
-    plt.xscale("log")  # Use log scale for better parameter visualization
-
-    # Add legend for only "Pre" models
-    plt.legend()
-
+    plt.title("Decoupled KD (CIFAR100): Accuracy-Memory Trade-off")
+    plt.xscale("log")  # Use log scale for better visualization
+    # Add legend
+    plt.legend(loc='best')
     plt.grid(True, linestyle='--', alpha=0.6)
+    
+    # Add a colorbar
+    sm_student = plt.cm.ScalarMappable(cmap=cmap_student, norm=norm_student)
+    sm_student.set_array([])
+    cbar_student = plt.colorbar(sm_student, ax=ax, pad=0.01, location='right', shrink=0.6)
+    cbar_student.set_label('Student Bit Precision')
+    
+    # Create a ScalarMappable
+    sm_teacher = plt.cm.ScalarMappable(cmap=cmap_teacher, norm=norm_teacher)
+    sm_teacher.set_array([])
+    cbar_teacher = plt.colorbar(sm_teacher, ax=ax, pad=0.1, location='right', shrink=0.6)
+    cbar_teacher.set_label('Teacher Bit Precision')
+
+    # Add Text for Bit Size
+    for i, bit in enumerate(args.bits):
+        ax.annotate(f"{bit}-bit", 
+                    xy=(post_quantization_student_memory[i], post_quantization_student_accuracy[i]),
+                    xytext=(5, 5),
+                    textcoords="offset points",
+                    fontsize=5)
+        ax.annotate(f"{bit}-bit", 
+                    xy=(post_quantization_teacher_memory[i], post_quantization_teacher_accuracy[i]),
+                    xytext=(5, 5),
+                    textcoords="offset points",
+                    fontsize=5)
 
     # Show the plot
     image_path = os.path.join(root_dir, 'images',  f"params_acc_{utils.hparamToString(hparam)}_bits_{'_'.join(map(str,args.bits))}_student_scalars_{'_'.join(map(str, args.scalars))}_teacher_scalars_{'_'.join(map(str, args.teacher_scalars))}.png")

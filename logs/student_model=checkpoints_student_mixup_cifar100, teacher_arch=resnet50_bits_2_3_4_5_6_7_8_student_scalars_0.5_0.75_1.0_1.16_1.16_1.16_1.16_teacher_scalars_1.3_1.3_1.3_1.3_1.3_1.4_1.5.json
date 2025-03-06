@@ -1,0 +1,69 @@
+{
+    "bits": [
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+    ],
+    "student_scalars": [
+        0.5,
+        0.75,
+        1.0,
+        1.16,
+        1.16,
+        1.16,
+        1.16
+    ],
+    "teacher_scalars": [
+        1.3,
+        1.3,
+        1.3,
+        1.3,
+        1.3,
+        1.4,
+        1.5
+    ],
+    "pre_quantization_student_accuracy": 0.6217,
+    "post_quantization_student_accuracy": [
+        0.3297,
+        0.4697,
+        0.5691,
+        0.6057,
+        0.6185,
+        0.6207,
+        0.6196
+    ],
+    "pre_quantization_student_params": 11220132,
+    "post_quantization_student_params": [
+        7719016,
+        8395274,
+        9255604,
+        10043077,
+        10618063,
+        10914856,
+        11067441
+    ],
+    "pre_quantization_teacher_accuracy": 0.7643,
+    "post_quantization_teacher_accuracy": [
+        0.7508,
+        0.752,
+        0.7511,
+        0.7528,
+        0.7523,
+        0.7541,
+        0.7566
+    ],
+    "pre_quantization_teacher_params": 23705252,
+    "post_quantization_teacher_params": [
+        23530864,
+        23549328,
+        23574514,
+        23609016,
+        23647188,
+        23671487,
+        23686052
+    ]
+}
